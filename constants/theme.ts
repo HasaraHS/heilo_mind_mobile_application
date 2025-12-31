@@ -5,7 +5,7 @@ export const colors = {
   primary: "#32CD32",      // Vibrant green (matches logo lightning bolt)
   secondary: "#00BFFF",    // Bright blue (matches logo swoosh)
   accent: "#7CFC00",       // Light green for highlights
-  background: "#0D1B1E",   // Dark navy background (from logo backdrop)
+  background: "#0A1E28",   // Dark navy background (from logo backdrop)
   surface: "#F5F5F5",      // Light neutral for cards or surfaces
   textPrimary: "#FFFFFF",  // White for main text
   textSecondary: "#A9A9A9",// Muted gray for secondary text
