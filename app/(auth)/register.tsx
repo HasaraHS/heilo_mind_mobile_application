@@ -55,6 +55,12 @@ const Register = () => {
       type: "success",
     });
     setAlertVisible(true);
+
+    // Navigate to Tabs after a short delay (so user can see the toast)
+  setTimeout(() => {
+    router.replace("/(tabs)/home"); 
+  }, 800);
+
   };
 
   return (
