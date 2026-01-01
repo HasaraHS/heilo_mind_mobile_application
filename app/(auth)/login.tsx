@@ -138,19 +138,19 @@ const Login = () => {
             </Typo>
 
             <View style={styles.socialContainer}>
-              <Pressable style={styles.socialButton}>
+              <Pressable style={styles.socialButton} onPress={() => console.log("Google login")}>
                 <Image
                   source={require("../../assets/images/google_logo.png")}
                   style={styles.socialIcon}
                 />
               </Pressable>
-              <Pressable style={styles.socialButton}>
+              <Pressable style={styles.socialButton} onPress={() => console.log("Facebook login")}>
                 <Image
                   source={require("../../assets/images/facebook_logo.png")}
                   style={styles.socialIcon}
                 />
               </Pressable>
-              <Pressable style={styles.socialButton}>
+              <Pressable style={styles.socialButton} onPress={() => console.log("Inster login")}>
                 <Image
                   source={require("../../assets/images/inster_logo.png")}
                   style={styles.socialIcon}
@@ -160,7 +160,7 @@ const Login = () => {
 
             <View style={styles.footer}>
               <Typo size={15}>Don&apos;t have an account?</Typo>
-              <Pressable onPress={() => router.push("/(auth)/register")}>
+              <Pressable onPress={() => router.navigate("/(auth)/register")}>
                 <Typo size={15} color={colors.primary} fontWeight="700">
                   SIGN UP
                 </Typo>
@@ -194,7 +194,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     gap: spacingX._10,
-    marginTop: spacingY._20,
   },
   progressBar: {
     width: verticalScale(115),
@@ -224,7 +223,7 @@ const styles = StyleSheet.create({
 
   logo: {
     height: verticalScale(200),
-    marginBottom: spacingY._20,
+    marginBottom: spacingY._10,
     alignSelf: "center",
   },
 
