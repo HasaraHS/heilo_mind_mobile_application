@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from "react-native";
 import React, { useRef, useState } from "react";
 import ScreenWrapper from "@/components/ScreenWrapper";
@@ -17,6 +18,7 @@ import * as Icon from "phosphor-react-native";
 import Button from "@/components/Button";
 import { useRouter } from "expo-router";
 import Toast from "@/components/Alert";
+import { useAuth } from "@/context/authContext";
 
 const Register = () => {
   const nameRef = useRef("");
@@ -25,6 +27,7 @@ const Register = () => {
   const confirmPasswordRef = useRef("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const {register: registerUser} = useAuth();
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertData, setAlertData] = useState({
@@ -33,7 +36,7 @@ const Register = () => {
     type: "info" as "success" | "error" | "info",
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (
       !nameRef.current ||
       !emailRef.current ||
@@ -56,10 +59,19 @@ const Register = () => {
     });
     setAlertVisible(true);
 
-    // Navigate to Tabs after a short delay (so user can see the toast)
-  setTimeout(() => {
-    router.replace("/(tabs)/home"); 
-  }, 800);
+    setIsLoading(true);
+
+    const res = await registerUser(
+      emailRef.current,
+      passwordRef.current,
+      nameRef.current
+    );
+
+    setIsLoading(false);
+    console.log('register result: ', res);
+    if(!res.success){
+      Alert.alert("Signup", res.msg)
+    }
 
   };
 
