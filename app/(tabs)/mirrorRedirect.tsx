@@ -1,11 +1,13 @@
 import { StyleSheet, Text, View } from 'react-native'
 import React from 'react'
+import ScreenWrapper from '@/components/ScreenWrapper'
+import Typo from '@/components/Typo'
 
 const MirrorRedirect = () => {
   return (
-    <View>
-      <Text>MirrorRedirect</Text>
-    </View>
+    <ScreenWrapper>
+      <Typo>MirrorRedirect</Typo>
+    </ScreenWrapper>
   )
 }
 
