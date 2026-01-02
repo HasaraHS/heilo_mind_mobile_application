@@ -1,11 +1,13 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text } from 'react-native'
 import React from 'react'
+import ScreenWrapper from '@/components/ScreenWrapper'
+import Typo from '@/components/Typo'
 
 const Home = () => {
   return (
-    <View>
-      <Text>Home</Text>
-    </View>
+    <ScreenWrapper>
+      <Typo>Home</Typo>
+    </ScreenWrapper>
   )
 }
 
