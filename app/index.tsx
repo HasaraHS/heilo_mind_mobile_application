@@ -1,18 +1,10 @@
 import { Image, StyleSheet, View } from 'react-native'
 import React, { useEffect } from 'react'
 import { colors } from '@/constants/theme'
-import { useRouter } from 'expo-router'
+
 
 const Index = () => {
-  const router = useRouter()
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      router.replace('/(auth)/welcome')
-    }, 2000)
-
-    return () => clearTimeout(timer)
-  }, [])
 
   return (
     <View style={styles.container}>
