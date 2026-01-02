@@ -90,6 +90,11 @@ export type AuthContextType = {
         email: string,
         password: string
     ) => Promise<{success: boolean, msg?: string}>;
+    register: (
+        email: string,
+        password: string,
+        name: string,
+    ) => Promise <{success:boolean; msg?: string}>;
     updateUserData: (userId: string) => Promise<void>;
 }
 
