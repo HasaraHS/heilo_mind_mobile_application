@@ -1,11 +1,7 @@
-import { StyleSheet, Text } from 'react-native'
+import { StyleSheet } from 'react-native'
 import React from 'react'
 import ScreenWrapper from '@/components/ScreenWrapper'
 import Typo from '@/components/Typo'
-import Button from '@/components/Button'
-import { colors } from '@/constants/theme'
-import { signOut } from 'firebase/auth'
-import { auth } from '@/config/firebase'
 import { useAuth } from '@/context/authContext'
 
 
