@@ -14,6 +14,8 @@ export const colors = {
   error: "#ef5463ff",        // Red for errors
   buttonPrimary: "#32CD32",// Primary button color
   buttonSecondary: "#00BFFF",// Secondary button color
+  tabBar: "#14303D",        // Tab bar background color
+  tabBarOutline: '#214656'  // Tab bar outline color
 };
 
 

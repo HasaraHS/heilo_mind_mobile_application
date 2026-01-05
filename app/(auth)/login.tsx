@@ -5,6 +5,7 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
 import React, { useRef, useState } from "react";
 import ScreenWrapper from "@/components/ScreenWrapper";
@@ -16,12 +17,14 @@ import * as Icon from "phosphor-react-native";
 import Button from "@/components/Button";
 import { useRouter } from "expo-router";
 import Toast from "@/components/Alert";
+import { useAuth } from "@/context/authContext";
 
 const Login = () => {
   const emailRef = useRef("");
   const passwordRef = useRef("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const {login: loginUser} = useAuth();
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertData, setAlertData] = useState({
@@ -30,7 +33,7 @@ const Login = () => {
     type: "info" as "success" | "error" | "info",
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!emailRef.current || !passwordRef.current) {
       setAlertData({
         title: "Missing Fields",
@@ -47,6 +50,14 @@ const Login = () => {
       type: "success",
     });
     setAlertVisible(true);
+
+    setIsLoading(true);
+    const res = await loginUser(emailRef.current, passwordRef.current);
+    setIsLoading(false);
+    if(!res.success){
+      Alert.alert("Login", res.msg);
+    }
+
   };
 
   return (

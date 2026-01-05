@@ -1,11 +1,19 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet } from 'react-native'
 import React from 'react'
+import ScreenWrapper from '@/components/ScreenWrapper'
+import Typo from '@/components/Typo'
+import { useAuth } from '@/context/authContext'
+
 
 const Home = () => {
+  const {user} = useAuth()
+
+  console.log("user", user);
+  
   return (
-    <View>
-      <Text>Home</Text>
-    </View>
+    <ScreenWrapper>
+      <Typo>Home</Typo>
+    </ScreenWrapper>
   )
 }
 
