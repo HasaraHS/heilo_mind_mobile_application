@@ -1,16 +1,21 @@
+import Button from "@/components/Button";
 import ScreenWrapper from "@/components/ScreenWrapper";
 import Typo from "@/components/Typo";
 import { colors, spacingX, spacingY } from "@/constants/theme";
 import { verticalScale } from "@/utils/styling";
+import { useRouter } from "expo-router";
+import * as Icon from "phosphor-react-native";
 import React from "react";
 import {
     KeyboardAvoidingView,
     Platform,
+    ScrollView,
     StyleSheet,
-    View,
+    View
 } from "react-native";
 
 const BatteryRuntime = () => {
+  const router = useRouter();
   // Sample power activity data for the graph
   const powerData = [
     { time: "00:00", value: 40 },
@@ -20,6 +25,14 @@ const BatteryRuntime = () => {
     { time: "16:00", value: 75 },
     { time: "20:00", value: 55 },
     { time: "24:00", value: 45 },
+  ];
+
+  const devices = [
+    { id: 1, name: "Computer System", count: 2, percentage: 20, icon: "Monitor" },
+    { id: 2, name: "Air Conditioner", count: 5, percentage: 40, icon: "Wind" },
+    { id: 3, name: "Livingroom", count: 6, percentage: 60, icon: "Couch" },
+    { id: 4, name: "CCTV Camera", count: 4, percentage: 50, icon: "Camera" },
+    { id: 5, name: "Kitchen Lights", count: 8, percentage: 15, icon: "Lightbulb" },
   ];
 
   const maxValue = 100;
@@ -90,121 +103,184 @@ const BatteryRuntime = () => {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        <View style={styles.container}>
+        <ScrollView 
+          style={{ flex: 1 }} 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.container}>
 
-          {/* Watermark */}
-          <Typo
-            size={70}
-            fontWeight="800"
-            color={colors.textSecondary}
-            style={styles.backgroundText}
-          >
-            solar monitor
-          </Typo>
-
-          {/* Main Content */}
-          <View style={styles.main}>
-            {/* Title */}
-            <Typo size={24} fontWeight="700" color={colors.textPrimary} style={{ textAlign: "center" }}>
-              Battery Runtime
+            {/* Watermark */}
+            <Typo
+              size={70}
+              fontWeight="800"
+              color={colors.textSecondary}
+              style={styles.backgroundText}
+            >
+              solar monitor
             </Typo>
 
-            {/* Graph Container */}
-            <View style={styles.graphCard}>
-              {/* Header */}
-              <View style={styles.graphHeader}>
-                <Typo size={14} fontWeight="600" color={colors.textSecondary}>
-                  RECENT POWER ACTIVITY
-                </Typo>
-              </View>
+            {/* Main Content */}
+            <View style={styles.main}>
+              {/* Title */}
+              <Typo size={24} fontWeight="700" color={colors.textPrimary} style={{ textAlign: "center" }}>
+                Battery Runtime
+              </Typo>
 
-              {/* Date Range */}
-              <View style={styles.dateRange}>
-                <Typo size={12} fontWeight="600" color={colors.textSecondary}>
-                  Aug 1
-                </Typo>
-                <Typo size={12} fontWeight="600" color={colors.textSecondary}>
-                  Aug 2
-                </Typo>
-              </View>
+              {/* Graph Container */}
+              <View style={styles.graphCard}>
+                {/* Header */}
+                <View style={styles.graphHeader}>
+                  <Typo size={14} fontWeight="600" color={colors.textSecondary}>
+                    RECENT POWER ACTIVITY
+                  </Typo>
+                </View>
 
-              {/* Graph with curved line */}
-              <View style={styles.graphContainer}>
-                {/* Y-axis grid lines */}
-                <View style={styles.gridLines}>
-                  {[0, 1, 2, 3, 4].map((index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.gridLine,
-                        {
-                          top: (index * graphHeight) / 4,
-                        },
-                      ]}
-                    />
+                {/* Date Range */}
+                <View style={styles.dateRange}>
+                  <Typo size={12} fontWeight="600" color={colors.textSecondary}>
+                    Aug 1
+                  </Typo>
+                  <Typo size={12} fontWeight="600" color={colors.textSecondary}>
+                    Aug 2
+                  </Typo>
+                </View>
+
+                {/* Graph with curved line */}
+                <View style={styles.graphContainer}>
+                  {/* Y-axis grid lines */}
+                  <View style={styles.gridLines}>
+                    {[0, 1, 2, 3, 4].map((index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.gridLine,
+                          {
+                            top: (index * graphHeight) / 4,
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+
+                  {/* SVG Curved Line Chart */}
+                  <View style={styles.svgContainer}>
+                    {/* Curved line made from small segments */}
+                    {curveSegments.map((point, index) => {
+                      if (index === 0) return null;
+                      const prevPoint = curveSegments[index - 1];
+                      const angle = Math.atan2(point.y - prevPoint.y, point.x - prevPoint.x);
+                      const distance = Math.sqrt(
+                        Math.pow(point.x - prevPoint.x, 2) + Math.pow(point.y - prevPoint.y, 2)
+                      );
+
+                      return (
+                        <View
+                          key={`curve-${index}`}
+                          style={[
+                            styles.curveSegment,
+                            {
+                              left: prevPoint.x,
+                              top: prevPoint.y,
+                              width: distance,
+                              transform: [{ rotate: `${(angle * 180) / Math.PI}deg` }],
+                              transformOrigin: "0 0",
+                            },
+                          ]}
+                        />
+                      );
+                    })}
+
+                    {/* Data point dots */}
+                    {powerData.map((point, index) => {
+                      const x = (index / (powerData.length - 1)) * graphWidth;
+                      const y = calculateYPosition(point.value);
+                      return (
+                        <View
+                          key={`point-${index}`}
+                          style={[
+                            styles.dataPoint,
+                            {
+                              left: x - 5,
+                              top: y - 5,
+                            },
+                          ]}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* X-axis labels */}
+                <View style={styles.xAxisLabels}>
+                  {powerData.map((point, index) => (
+                    <View key={index} style={styles.xAxisLabel}>
+                      <Typo size={9} color={colors.textSecondary}>
+                        {point.time}
+                      </Typo>
+                    </View>
                   ))}
                 </View>
+              </View>
 
-                {/* SVG Curved Line Chart */}
-                <View style={styles.svgContainer}>
-                  {/* Curved line made from small segments */}
-                  {curveSegments.map((point, index) => {
-                    if (index === 0) return null;
-                    const prevPoint = curveSegments[index - 1];
-                    const angle = Math.atan2(point.y - prevPoint.y, point.x - prevPoint.x);
-                    const distance = Math.sqrt(
-                      Math.pow(point.x - prevPoint.x, 2) + Math.pow(point.y - prevPoint.y, 2)
-                    );
+              {/* Devices Section */}
+              <View style={styles.devicesSection}>
+                <Typo size={36} fontWeight="700" color={colors.textPrimary}>
+                  18
+                </Typo>
+                <Typo size={12} fontWeight="600" color={colors.textSecondary} style={styles.devicesTitle}>
+                  POWER DRAINING DEVICES DETECTED
+                </Typo>
 
+                <View style={styles.devicesList}>
+                  {devices.map((device) => {
+                    const DeviceIcon = (Icon as any)[device.icon];
                     return (
-                      <View
-                        key={`curve-${index}`}
-                        style={[
-                          styles.curveSegment,
-                          {
-                            left: prevPoint.x,
-                            top: prevPoint.y,
-                            width: distance,
-                            transform: [{ rotate: `${(angle * 180) / Math.PI}deg` }],
-                            transformOrigin: "0 0",
-                          },
-                        ]}
-                      />
-                    );
-                  })}
-
-                  {/* Data point dots */}
-                  {powerData.map((point, index) => {
-                    const x = (index / (powerData.length - 1)) * graphWidth;
-                    const y = calculateYPosition(point.value);
-                    return (
-                      <View
-                        key={`point-${index}`}
-                        style={[
-                          styles.dataPoint,
-                          {
-                            left: x - 5,
-                            top: y - 5,
-                          },
-                        ]}
-                      />
+                      <View key={device.id} style={styles.deviceItem}>
+                        <View style={styles.deviceInfo}>
+                          <View style={styles.iconContainer}>
+                            {DeviceIcon && <DeviceIcon size={24} color={colors.textPrimary} />}
+                          </View>
+                          <View style={styles.deviceText}>
+                            <Typo size={16} fontWeight="600" color={colors.textPrimary}>
+                              {device.name}
+                            </Typo>
+                            <Typo size={12} color={colors.textSecondary}>
+                              {device.count} Devices
+                            </Typo>
+                          </View>
+                        </View>
+                        <View style={styles.percentageContainer}>
+                          <Typo size={20} fontWeight="700" color="#FFD700">
+                            {device.percentage}
+                          </Typo>
+                          <Typo size={12} color={colors.textSecondary} style={{ marginLeft: 2 }}>
+                            %
+                          </Typo>
+                        </View>
+                        {/* Progress bar indicator */}
+                        <View style={[styles.progressBar, { width: `${device.percentage}%` }]} />
+                        {/* Separator */}
+                        <View style={styles.separator} />
+                      </View>
                     );
                   })}
                 </View>
-              </View>
-
-              {/* X-axis labels */}
-              <View style={styles.xAxisLabels}>
-                {powerData.map((point, index) => (
-                  <View key={index} style={styles.xAxisLabel}>
-                    <Typo size={9} color={colors.textSecondary}>
-                      {point.time}
-                    </Typo>
-                  </View>
-                ))}
               </View>
             </View>
           </View>
+        </ScrollView>
+
+        {/* Fixed Footer Button */}
+        <View style={styles.footer}>
+          <Button 
+            style={styles.optimizeButton}
+            onPress={() => router.push("/battery_runtime/page_2")}
+          >
+            <Typo size={18} fontWeight="700" color={colors.background}>
+              Optimize Battery
+            </Typo>
+          </Button>
         </View>
       </KeyboardAvoidingView>
     </ScreenWrapper>
@@ -216,7 +292,6 @@ export default BatteryRuntime;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "space-between",
   },
 
   /* Watermark */
@@ -227,10 +302,10 @@ const styles = StyleSheet.create({
     opacity: 0.06,
     textTransform: "uppercase",
     letterSpacing: 4,
+    zIndex: -1,
   },
 
   main: {
-    flex: 1,
     paddingHorizontal: spacingX._20,
     paddingVertical: spacingY._20,
     gap: spacingY._20,
@@ -317,5 +392,76 @@ const styles = StyleSheet.create({
 
   xAxisLabel: {
     alignItems: "center",
+  },
+
+  /* Devices Section */
+  scrollContent: {
+    paddingBottom: spacingY._30,
+  },
+  devicesSection: {
+    marginTop: spacingY._10,
+  },
+  devicesTitle: {
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: spacingY._20,
+  },
+  devicesList: {
+    gap: spacingY._15,
+  },
+  deviceItem: {
+    position: "relative",
+    paddingBottom: spacingY._15,
+  },
+  deviceInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacingX._15,
+  },
+  iconContainer: {
+    width: 45,
+    height: 45,
+    borderRadius: 25,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  deviceText: {
+    flex: 1,
+  },
+  percentageContainer: {
+    position: "absolute",
+    right: 0,
+    top: 5,
+    flexDirection: "row",
+    alignItems: "baseline",
+  },
+  progressBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    height: 3,
+    backgroundColor: "#00BFFF", // Deep Sky Blue
+    borderRadius: 2,
+    zIndex: 1,
+  },
+  separator: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+  },
+  optimizeButton: {
+    backgroundColor: colors.primary,
+    height: verticalScale(50),
+  },
+  footer: {
+    paddingHorizontal: spacingX._20,
+    paddingBottom: spacingY._20,
+    paddingTop: spacingY._10,
   },
 });
