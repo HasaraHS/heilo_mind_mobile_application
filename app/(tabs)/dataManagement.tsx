@@ -111,7 +111,7 @@ const DataManagement = () => {
     }[] = [
       { label: "Temperature", icon: "Thermometer", match: /temp|temperature/i },
       { label: "Humidity", icon: "Drop", match: /humidity/i },
-      { label: "Power", icon: "Lightning", match: /power|watt|kw|kwh/i },
+      { label: "Irradiance", icon: "Sun", match: /irradiance|lux/i },
       { label: "Voltage", icon: "PlugCharging", match: /volt|voltage/i },
     ];
 
