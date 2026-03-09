@@ -5,59 +5,122 @@ import { colors, spacingX, spacingY } from "@/constants/theme";
 import { verticalScale } from "@/utils/styling";
 import { useRouter } from "expo-router";
 import * as Icon from "phosphor-react-native";
-import React, { useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import React, { useState, useEffect } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Dimensions, FlatList } from "react-native";
+
+const SOLAR_PREDICTION_API_URL =
+  process.env.EXPO_PUBLIC_SOLAR_PREDICTION_API_URL as string;
+const SOLAR_RESULT_API_URL =
+  process.env.EXPO_PUBLIC_SOLAR_RESULT_API_URL as string;
+const SOLAR_DEVICE_ID = process.env.EXPO_PUBLIC_SOLAR_DEVICE_ID as string;
 
 const SolarForecasting = () => {
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState("Today");
+  const [isPredicting, setIsPredicting] = useState(false);
 
   const tabs = ["Today", "Yesterday", "7 Days"];
 
-  const graphData: { [key: string]: { time: string; value: number }[] } = {
-    Today: [
-      { time: "6:00", value: 20 },
-      { time: "8:00", value: 35 },
-      { time: "10:00", value: 15 },
-      { time: "15:00", value: 30 },
-      { time: "17:00", value: 55 },
-      { time: "20:00", value: 40 },
-      { time: "0:00", value: 45 },
-      { time: "5:00", value: 30 },
-    ],
-    Yesterday: [
-      { time: "6:00", value: 15 },
-      { time: "8:00", value: 40 },
-      { time: "10:00", value: 25 },
-      { time: "15:00", value: 35 },
-      { time: "17:00", value: 45 },
-      { time: "20:00", value: 30 },
-      { time: "0:00", value: 20 },
-      { time: "5:00", value: 25 },
-    ],
-    "7 Days": [
-      { time: "Mon", value: 50 },
-      { time: "Tue", value: 45 },
-      { time: "Wed", value: 60 },
-      { time: "Thu", value: 55 },
-      { time: "Fri", value: 70 },
-      { time: "Sat", value: 65 },
-      { time: "Sun", value: 80 },
-    ],
-  };
+  const [sensorData, setSensorData] = useState<any[]>([]);
 
-  const currentData = graphData[selectedTab];
+  const graphData: { [key: string]: { time: string; value: number }[] } = {
+  Today: [
+    { time: "06:00", value: 0.2 },
+    { time: "08:00", value: 0.4 },
+    { time: "10:00", value: 0.8 },
+    { time: "12:00", value: 1.2 },
+    { time: "14:00", value: 1.5 },
+    { time: "16:00", value: 1.1 },
+    { time: "18:00", value: 0.6 },
+    { time: "20:00", value: 0.2 },
+  ],
+
+  Yesterday: [
+    { time: "06:00", value: 0.1 },
+    { time: "08:00", value: 0.3 },
+    { time: "10:00", value: 0.7 },
+    { time: "12:00", value: 1.0 },
+    { time: "14:00", value: 0.7 },
+    { time: "16:00", value: 0.4 },
+    { time: "18:00", value: 0.15 },
+    { time: "20:00", value: 0.05 },
+  ],
+
+  "7 Days": [
+    { time: "Mon", value: 2.8 },
+    { time: "Tue", value: 3.1 },
+    { time: "Wed", value: 3.6 },
+    { time: "Thu", value: 3.2 },
+    { time: "Fri", value: 3.8 },
+    { time: "Sat", value: 3.4 },
+    { time: "Sun", value: 4.0 },
+  ],
+};
+
+  const buildGraphData = () => {
+  if (!sensorData || sensorData.length === 0) return [];
+
+  return sensorData.map((item: any) => ({
+    time: new Date(item.timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    value: Number(item.energy || item.power || 0),
+  }));
+};
+
+  const currentData =
+  selectedTab === "Today" ? buildGraphData() : graphData[selectedTab];
   const graphWidth = 320;
   const graphHeight = 150;
-  const maxValue = 100;
+  const maxValue = 4;
 
-  const calculateY = (value: number) => graphHeight - (value / maxValue) * graphHeight;
+  const calculateY = (value: number) =>
+    graphHeight - (value / maxValue) * graphHeight;
+
+  const wait = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  const normalizeApiPayload = (payload: any) => {
+    if (payload && typeof payload.body === "string") {
+      try {
+        return JSON.parse(payload.body);
+      } catch {
+        return payload;
+      }
+    }
+
+    return payload;
+  };
+
+  const fetchSensorData = async () => {
+  try {
+    const response = await fetch(
+      process.env.EXPO_PUBLIC_SENSOR_API_URL as string
+    );
+
+    const data = await response.json();
+
+    console.log("Sensor API response:", data);
+
+    setSensorData(data || []);
+  } catch (error) {
+    console.log("Sensor fetch error:", error);
+  }
+};
+
+useEffect(() => {
+  fetchSensorData();
+
+  const interval = setInterval(() => {
+    fetchSensorData();
+  }, 10000); // every 10 seconds
+
+  return () => clearInterval(interval);
+}, []);
+
+
 
   const today = new Date();
 
@@ -70,20 +133,184 @@ const SolarForecasting = () => {
 
   const locationName = "Malabe, Sri Lanka";
 
-  const predictions = [
-  
-  { id: "1", label: "2 Days Ago", value: 14.7 },
-  { id: "2", label: "Yesterday", value: 16.2 },
-  { id: "3", label: "Today", value: 18.5 },
-];
+  const [predictions, setPredictions] = useState([
+  { id: "1", label: "2 Days Ago", value: 2.6 },
+  { id: "2", label: "Yesterday", value: 3.4 },
+  { id: "3", label: "Today", value: 0 },
+]);
 
 const { width } = Dimensions.get("window");
 const cardWidth = width * 0.75;
 
+  const isResultPending = (status: number, payload: any) => {
+    const message = String(
+      payload?.error || payload?.message || payload?.details || ""
+    ).toLowerCase();
+
+    return (
+      status === 404 ||
+      status === 202 ||
+      status === 429 ||
+      message.includes("not ready") ||
+      message.includes("not found") ||
+      message.includes("pending")
+    );
+  };
+
+  const extractSolarResultValue = (payload: any) => {
+    return (
+      payload?.prediction ??
+      payload?.data?.prediction ??
+      payload?.result?.prediction ??
+      payload?.total_energy_kwh ??
+      payload?.data?.total_energy_kwh ??
+      payload?.result?.total_energy_kwh
+    );
+  };
+
+  /**
+   * Fetch prediction result from API with retries
+   */
+  const fetchPredictionResult = async (requestId: string) => {
+    if (!SOLAR_RESULT_API_URL) {
+      throw new Error("Solar result API URL is not configured.");
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        const url = `${SOLAR_RESULT_API_URL}?requestId=${encodeURIComponent(
+          requestId
+        )}`;
+        console.log(`Attempt ${attempt + 1} GET:`, url);
+
+        const response = await fetch(url);
+        const rawResultData = await response.json().catch(() => ({}));
+        const resultData = normalizeApiPayload(rawResultData);
+
+        if (isResultPending(response.status, resultData)) {
+          console.log(`Result not ready yet (${response.status}), retrying...`);
+          throw new Error("Result not ready");
+        }
+
+        if (!response.ok) {
+          const errorMessage =
+            resultData?.error ||
+            resultData?.details ||
+            `HTTP ${response.status}`;
+          throw new Error(errorMessage);
+        }
+
+        const hasPrediction = extractSolarResultValue(resultData) !== undefined;
+        const isSuccessfulPayload =
+          String(
+            resultData?.status ??
+              resultData?.data?.status ??
+              resultData?.result?.status ??
+              ""
+          ).toLowerCase() === "success";
+
+        if (hasPrediction || isSuccessfulPayload) {
+          return resultData;
+        }
+      } catch (error) {
+        lastError =
+          error instanceof Error ? error : new Error("Failed to fetch result");
+      }
+
+      await wait(2000); // wait 2s before retry
+    }
+
+    if (lastError) throw lastError;
+    throw new Error("Prediction result not available after multiple attempts.");
+  };
+
+  const handleGetPredictions = async () => {
+    if (isPredicting) return;
+    if (!SOLAR_PREDICTION_API_URL) {
+      Alert.alert("Configuration Error", "Solar prediction API URL is missing.");
+      return;
+    }
+    if (!SOLAR_DEVICE_ID) {
+      Alert.alert("Configuration Error", "Solar device ID is missing.");
+      return;
+    }
+
+    const requestId = `EN-${Date.now()}`;
+
+    try {
+      setIsPredicting(true);
+
+      // Send prediction request
+      const response = await fetch(SOLAR_PREDICTION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deviceId: SOLAR_DEVICE_ID,
+          requestId,
+        }),
+      });
+
+      const rawData = await response.json().catch(() => ({}));
+      const data = normalizeApiPayload(rawData);
+
+      if (!response.ok) {
+        const errorMessage =
+          data?.error || data?.details || `HTTP ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      console.log("Prediction request sent:", data);
+
+      //Fetch prediction result (with retry)
+      const effectiveRequestId =
+        data?.requestId || data?.requestid || data?.data?.requestId || requestId;
+      const resultData = await fetchPredictionResult(effectiveRequestId);
+      console.log("Prediction result fetched:", resultData);
+
+      const returnedRequestId =
+        resultData?.requestId ??
+        resultData?.requestid ??
+        resultData?.data?.requestId ??
+        effectiveRequestId;
+      const predictionValue = extractSolarResultValue(resultData);
+
+      if (typeof predictionValue === "number") {
+  setPredictions((prev) =>
+    prev.map((item) =>
+      item.label === "Today"
+        ? { ...item, value: predictionValue }
+        : item
+    )
+  );
+}
+      const predictionText =
+        typeof predictionValue === "number"
+          ? `${predictionValue} kWh`
+          : typeof predictionValue === "object"
+          ? JSON.stringify(predictionValue)
+          : String(predictionValue ?? "N/A");
+
+      // Show Alert
+      Alert.alert(
+        "Prediction Received",
+        `Request ID: ${returnedRequestId}\nPrediction: ${predictionText}`
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to trigger prediction";
+      Alert.alert("Request Failed", message);
+      console.log("Prediction error:", error);
+    } finally {
+      setIsPredicting(false);
+    }
+  };
+
   return (
     <ScreenWrapper>
-      <ScrollView 
-        style={{ flex: 1 }} 
+      <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -139,10 +366,7 @@ const cardWidth = width * 0.75;
               {tabs.map((tab) => (
                 <Pressable
                   key={tab}
-                  style={[
-                    styles.tabButton,
-                    selectedTab === tab && styles.activeTab
-                  ]}
+                  style={[styles.tabButton, selectedTab === tab && styles.activeTab]}
                   onPress={() => setSelectedTab(tab)}
                 >
                   <Typo
@@ -161,69 +385,36 @@ const cardWidth = width * 0.75;
               <Typo size={14} fontWeight="600" color={colors.textSecondary} style={styles.graphTitle}>
                 ENERGY GENERATION (kWh)
               </Typo>
-              
+
               <View style={styles.graphCard}>
-                <View style={styles.graphLabelsY}>
-                  <Typo size={10} color={colors.textSecondary}>Aug</Typo>
-                  <Typo size={10} color={colors.textSecondary}>1</Typo>
-                </View>
 
                 <View style={styles.chartArea}>
-                  {/* Grid Lines */}
-                  {[0, 1, 2, 3].map((i) => (
-                    <View 
-                      key={i} 
-                      style={[
-                        styles.gridLine, 
-                        { left: (i * graphWidth) / 4 }
-                      ]} 
-                    />
-                  ))}
-
                   {/* Line Chart */}
-                  <View style={styles.svgContainer}>
-                    {currentData.map((point, index) => {
-                      if (index === 0) return null;
-                      const prev = currentData[index - 1];
-                      const x1 = ((index - 1) / (currentData.length - 1)) * graphWidth;
-                      const y1 = calculateY(prev.value);
-                      const x2 = (index / (currentData.length - 1)) * graphWidth;
-                      const y2 = calculateY(point.value);
-
-                      const angle = Math.atan2(y2 - y1, x2 - x1);
-                      const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-
-                      return (
-                        <View
-                          key={index}
-                          style={[
-                            styles.lineSegment,
-                            {
-                              left: x1,
-                              top: y1,
-                              width: dist,
-                              transform: [{ rotate: `${(angle * 180) / Math.PI}deg` }],
-                            },
-                          ]}
-                        />
-                      );
-                    })}
-
-                    {/* Dots */}
-                    {currentData.map((point, index) => {
-                      const x = (index / (currentData.length - 1)) * graphWidth;
-                      const y = calculateY(point.value);
-                      return (
-                        <View
-                          key={`dot-${index}`}
-                          style={[styles.dataDot, { left: x - 4, top: y - 4 }]}
-                        />
-                      );
-                    })}
-                  </View>
+                  {currentData.map((point, index) => {
+                    if (index === 0) return null;
+                    const prev = currentData[index - 1];
+                    const x1 = ((index - 1) / (currentData.length - 1)) * graphWidth;
+                    const y1 = calculateY(prev.value);
+                    const x2 = (index / (currentData.length - 1)) * graphWidth;
+                    const y2 = calculateY(point.value);
+                    const angle = Math.atan2(y2 - y1, x2 - x1);
+                    const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.lineSegment,
+                          { left: x1, top: y1, width: dist, transform: [{ rotate: `${(angle * 180) / Math.PI}deg` }] },
+                        ]}
+                      />
+                    );
+                  })}
+                  {currentData.map((point, index) => {
+                    const x = (index / (currentData.length - 1)) * graphWidth;
+                    const y = calculateY(point.value);
+                    return <View key={index} style={[styles.dataDot, { left: x - 4, top: y - 4 }]} />;
+                  })}
                 </View>
-
-                {/* X Axis Labels */}
                 <View style={styles.xAxis}>
                   {currentData.map((point, index) => (
                     <Typo key={index} size={9} color={colors.textSecondary}>
@@ -234,15 +425,32 @@ const cardWidth = width * 0.75;
               </View>
             </View>
 
-            {/* Weather Report Button */}
-            <Button 
-              style={styles.weatherButton}
-              onPress={() => router.push("/(tabs)/weatherReport")}
-            >
-              <Typo size={18} fontWeight="700" color="#fff">
-                Weather Report {">"}
-              </Typo>
-            </Button>
+            {/* Notification Section */}
+{predictions.find(p => p.label === "Today")?.value !== undefined && (
+  <View style={styles.notificationCard}>
+    <Typo size={16} fontWeight="600" color="#fff" style={{ marginBottom: 8 }}>
+      Energy Suggestion
+    </Typo>
+    <Typo size={14} color="#fff">
+      {predictions.find(p => p.label === "Today")!.value > 10
+        ? "Predicted solar energy is high today. It's a good idea to run high-power tasks using solar energy."
+        : "Predicted solar energy is low today. Consider conserving energy or using minimal high-power devices."}
+    </Typo>
+  </View>
+)}
+
+            {/* Prediction Button */}
+            <Pressable
+  style={[styles.refreshButton, isPredicting && styles.buttonDisabled]}
+  onPress={handleGetPredictions}
+  disabled={isPredicting}
+>
+  <Icon.ArrowClockwise
+    size={26}
+    color="#ffffff"
+    weight="bold"
+  />
+</Pressable>
           </View>
         </View>
       </ScrollView>
@@ -253,12 +461,8 @@ const cardWidth = width * 0.75;
 export default SolarForecasting;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: spacingY._30,
-  },
+  container: { flex: 1 },
+  scrollContent: { paddingBottom: spacingY._30 },
   backgroundText: {
     position: "absolute",
     top: verticalScale(400),
@@ -268,25 +472,34 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     zIndex: -1,
   },
-  main: {
-    paddingHorizontal: spacingX._20,
-    paddingVertical: spacingY._20,
-    gap: spacingY._25,
+  main: { paddingHorizontal: spacingX._20, paddingVertical: spacingY._20, gap: spacingY._25 },
+  header: { gap: spacingY._5 },
+  locationRow: { flexDirection: "row", alignItems: "center", marginTop: spacingY._5 },
+  predictionCard: {
+    backgroundColor: "#32CD32",
+    borderRadius: 24,
+    padding: spacingX._20,
+    shadowColor: "#32CD32",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  header: {
-    gap: spacingY._5,
-  },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: spacingY._5,
-  },
-  predictionRow: {
-  flexDirection: "row",
-  gap: spacingX._10,
-},
-
-sliderCard: {
+  valueRow: { flexDirection: "row", alignItems: "baseline", marginVertical: spacingY._5 },
+  tabContainer: { flexDirection: "row", gap: spacingX._15 },
+  tabButton: { flex: 1, height: 50, borderRadius: 12, backgroundColor: "#F5F5F5", justifyContent: "center", alignItems: "center" },
+  activeTab: { backgroundColor: "#32CD32" },
+  graphSection: { gap: spacingY._15 },
+  graphTitle: { letterSpacing: 1 },
+  graphCard: { backgroundColor: "rgba(255, 255, 255, 0.05)", borderRadius: 24, padding: spacingX._20, height: 250 },
+  chartArea: { flex: 1, marginTop: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255, 255, 255, 0.1)", position: "relative" },
+  lineSegment: { position: "absolute", height: 2, backgroundColor: "#ADFF2F", transformOrigin: "left center" },
+  dataDot: { position: "absolute", width: 8, height: 8, borderRadius: 4, backgroundColor: "#ADFF2F", borderWidth: 2, borderColor: "#0A1E28", zIndex: 2 },
+  xAxis: { flexDirection: "row", justifyContent: "space-between", marginTop: 10 },
+  predictionButton: { backgroundColor: "#ADFF2F", height: 56, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  buttonDisabled: { opacity: 0.7 },
+  weatherButton: { backgroundColor: "#32CD32", height: 60, borderRadius: 15, marginTop: spacingY._10 },
+  sliderCard: {
   backgroundColor: "#32CD32",
   borderRadius: 24,
   padding: spacingX._20,
@@ -298,87 +511,37 @@ sliderCard: {
   shadowRadius: 12,
   elevation: 8,
 },
-  valueRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginVertical: spacingY._5,
-  },
-  tabContainer: {
-    flexDirection: "row",
-    gap: spacingX._15,
-  },
-  tabButton: {
-    flex: 1,
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: "#F5F5F5",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  activeTab: {
-    backgroundColor: "#32CD32",
-  },
-  graphSection: {
-    gap: spacingY._15,
-  },
-  graphTitle: {
-    letterSpacing: 1,
-  },
-  graphCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderRadius: 24,
-    padding: spacingX._20,
-    height: 250,
-  },
-  graphLabelsY: {
+refreshButton: {
+  width: 70,
+  height: 70,
+  borderRadius: 40,
+  backgroundColor: "rgba(255, 255, 255, 0.1)",
+  justifyContent: "center",
+  top: 30,
+  alignItems: "center",
+  alignSelf: "center",
+  shadowColor: "rgba(255, 255, 255, 0.1)",
+  shadowOffset: { width: 0, height: 6 },
+  shadowOpacity: 0.2,
+  shadowRadius: 10,
+  elevation: 6,
+},
+graphLabelsY: {
     position: "absolute",
     left: 15,
     top: 40,
     alignItems: "center",
   },
-  chartArea: {
-    flex: 1,
-    marginTop: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
-    position: "relative",
-  },
-  gridLine: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-  },
-  svgContainer: {
-    flex: 1,
-    position: "relative",
-  },
-  lineSegment: {
-    position: "absolute",
-    height: 2,
-    backgroundColor: "#ADFF2F",
-    transformOrigin: "left center",
-  },
-  dataDot: {
-    position: "absolute",
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#ADFF2F",
-    borderWidth: 2,
-    borderColor: "#0A1E28",
-    zIndex: 2,
-  },
-  xAxis: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 10,
-  },
-  weatherButton: {
-    backgroundColor: "#32CD32",
-    height: 60,
-    borderRadius: 15,
-    marginTop: spacingY._10,
-  },
+  notificationCard: {
+  backgroundColor: "#f1b23c",
+  borderRadius: 20,
+  padding: spacingX._20,
+  marginVertical: spacingY._15,
+  shadowColor: "#f1b23c",
+  shadowOffset: { width: 0, height: 6 },
+  shadowOpacity: 0.3,
+  shadowRadius: 12,
+  elevation: 6,
+},
 });
+
