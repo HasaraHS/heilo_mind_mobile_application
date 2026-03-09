@@ -25,6 +25,7 @@ const Home = () => {
   const [sensorLoading, setSensorLoading] = useState(true);
   const [sensorError, setSensorError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [runtimeHours, setRuntimeHours] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     lastSynced: "",
     deviceCount: 0,
@@ -168,6 +169,7 @@ const Home = () => {
 
   const calculateY = (value: number) =>
     graphHeight - (value / maxValue) * graphHeight;
+ 
 
   return (
     <ScreenWrapper>
@@ -415,9 +417,10 @@ const Home = () => {
               weight="fill"
             />
           </View>
-          <Typo size={36} fontWeight="700" style={styles.cardValue}>
-            18h 42m
-          </Typo>
+          
+                  <Typo size={32} fontWeight="700" color="#000">
+  {runtimeHours.toFixed(2)}h
+</Typo>
           <View style={styles.cardFooter}>
             <Typo size={12} color={colors.textSecondary}>
               Remaining at current load
