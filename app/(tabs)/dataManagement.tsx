@@ -424,7 +424,7 @@ export default DataManagement;
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  scrollContent: { paddingBottom: spacingY._30 },
+  scrollContent: { },
 
   backgroundText: {
     position: "absolute",

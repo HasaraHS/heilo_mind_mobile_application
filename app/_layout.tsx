@@ -1,7 +1,6 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet } from 'react-native'
 import React from 'react'
 import { Stack } from 'expo-router'
-import { HeaderShownContext } from '@react-navigation/elements'
 import { AuthProvider } from '@/context/authContext'
 
 const StackLayout = () => {

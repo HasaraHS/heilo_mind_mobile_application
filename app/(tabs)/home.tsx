@@ -7,19 +7,31 @@ import { getProfileImage } from "@/services/imageService";
 import { verticalScale } from "@/utils/styling";
 import { Image } from "expo-image";
 import * as Icons from "phosphor-react-native";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { trackAppOpen } from "@/services/visitTracker";
 import { trackAppOpenAWS } from "@/services/awsAppVisit";
 import { fetchSyncStatus, SyncStatus } from "@/services/syncService";
 import { publishGetDataRequest } from "@/services/awsIotPublisher";
 
-const SENSOR_API_URL =
-  "https://m5isvhcq7e.execute-api.eu-north-1.amazonaws.com/sensor?deviceId=Raspberry";
-const SOLAR_PREDICTION_API_URL =
-  process.env.EXPO_PUBLIC_SOLAR_PREDICTION_API_URL as string;
-const SOLAR_RESULT_API_URL =
-  process.env.EXPO_PUBLIC_SOLAR_RESULT_API_URL as string;
+const SENSOR_API_URL = process.env.EXPO_PUBLIC_SENSOR_API_URL as string;
+const SOLAR_PREDICTION_API_URL = process.env
+  .EXPO_PUBLIC_SOLAR_PREDICTION_API_URL as string;
+const SOLAR_RESULT_API_URL = process.env
+  .EXPO_PUBLIC_SOLAR_RESULT_API_URL as string;
 const SOLAR_DEVICE_ID = process.env.EXPO_PUBLIC_SOLAR_DEVICE_ID as string;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -129,45 +141,48 @@ const Home = () => {
   const [solarPrediction, setSolarPrediction] = useState<number | null>(null);
   const [solarLoading, setSolarLoading] = useState(false);
   const [solarError, setSolarError] = useState<string | null>(null);
+  const [isAnomaly, setIsAnomaly] = useState(false);
 
   const fetchSolarPrediction = useCallback(async () => {
-  if (!SOLAR_PREDICTION_API_URL || !SOLAR_DEVICE_ID) {
-    setSolarError("Prediction API or Device ID not configured");
-    return;
-  }
+    if (!SOLAR_PREDICTION_API_URL || !SOLAR_DEVICE_ID) {
+      setSolarError("Prediction API or Device ID not configured");
+      return;
+    }
 
-  try {
-    setSolarLoading(true);
-    setSolarError(null);
+    try {
+      setSolarLoading(true);
+      setSolarError(null);
 
-    // Send prediction request
-    const requestId = `EN-${Date.now()}`;
-    const response = await fetch(SOLAR_PREDICTION_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId: SOLAR_DEVICE_ID, requestId }),
-    });
+      // Send prediction request
+      const requestId = `EN-${Date.now()}`;
+      const response = await fetch(SOLAR_PREDICTION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId: SOLAR_DEVICE_ID, requestId }),
+      });
 
-    const rawData = await response.json().catch(() => ({}));
-    const data = normalizeApiPayload(rawData);
+      const rawData = await response.json().catch(() => ({}));
+      const data = normalizeApiPayload(rawData);
 
-    if (!response.ok) throw new Error(data?.error || "Failed request");
+      if (!response.ok) throw new Error(data?.error || "Failed request");
 
-    // Fetch the result with retries
-    const result = await fetchPredictionResult(data?.requestId || requestId);
-    const value = extractSolarResultValue(result);
+      // Fetch the result with retries
+      const result = await fetchPredictionResult(data?.requestId || requestId);
+      const value = extractSolarResultValue(result);
 
-    if (typeof value === "number") setSolarPrediction(value);
-  } catch (err) {
-    setSolarError(err instanceof Error ? err.message : "Failed to fetch prediction");
-  } finally {
-    setSolarLoading(false);
-  }
-}, []);
+      if (typeof value === "number") setSolarPrediction(value);
+    } catch (err) {
+      setSolarError(
+        err instanceof Error ? err.message : "Failed to fetch prediction",
+      );
+    } finally {
+      setSolarLoading(false);
+    }
+  }, []);
 
-useEffect(() => {
-  fetchSolarPrediction();
-}, [fetchSolarPrediction]);
+  useEffect(() => {
+    fetchSolarPrediction();
+  }, [fetchSolarPrediction]);
 
   const recordVisit = useCallback(async () => {
     if (!user?.uid) return;
@@ -185,7 +200,7 @@ useEffect(() => {
     }
   }, [user]);
 
-  // Count visit only when user enters Home screen (not on refresh action)
+  // Count visit only when user enters Home screen
   useFocusEffect(
     useCallback(() => {
       recordVisit();
@@ -214,25 +229,25 @@ useEffect(() => {
 
   useEffect(() => {
     loadSyncStatus();
-    const interval = setInterval(loadSyncStatus, 30000);  
+    const interval = setInterval(loadSyncStatus, 30000);
     return () => clearInterval(interval);
   }, [loadSyncStatus]);
 
   // Flatten nested objects
-  const flattenData = useCallback((
-    obj: Record<string, any>,
-    prefix = "",
-  ): Record<string, any> => {
-    let result: Record<string, any> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        Object.assign(result, flattenData(value, `${prefix}${key}_`));
-      } else {
-        result[`${prefix}${key}`] = value;
+  const flattenData = useCallback(
+    (obj: Record<string, any>, prefix = ""): Record<string, any> => {
+      let result: Record<string, any> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          Object.assign(result, flattenData(value, `${prefix}${key}_`));
+        } else {
+          result[`${prefix}${key}`] = value;
+        }
       }
-    }
-    return result;
-  }, []);
+      return result;
+    },
+    [],
+  );
 
   //fetch sensor data
   const fetchSensorData = useCallback(async () => {
@@ -286,32 +301,22 @@ useEffect(() => {
     }
   }, [fetchSensorData, loadSyncStatus]);
 
-  const sensorEntries = useMemo(() => {
-    if (!sensorData) return [];
-    return Object.entries(sensorData);
-  }, [sensorData]);
-
-  // Simplified graph data for Solar Prediction
-  const solarGraphData = [
-    { time: "6:00", value: 20 },
-    { time: "8:00", value: 35 },
-    { time: "10:00", value: 15 },
-    { time: "15:00", value: 30 },
-    { time: "17:00", value: 55 },
-    { time: "20:00", value: 40 },
-    { time: "0:00", value: 45 },
-    { time: "5:00", value: 30 },
-  ];
-
-  const graphWidth = 300;
-  const graphHeight = 100;
-  const maxValue = 100;
-
-  const calculateY = (value: number) =>
-    graphHeight - (value / maxValue) * graphHeight;
-
   return (
     <ScreenWrapper>
+      {/* Watermark Background */}
+      <View style={styles.watermarkWrapper} pointerEvents="none">
+        <View style={styles.backgroundContainer}>
+         <Typo
+            size={70}
+            fontWeight="800"
+            color={colors.textSecondary}
+            style={styles.backgroundText}
+          >
+            Solar Monitor
+          </Typo>
+        </View>
+      </View>
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
@@ -320,16 +325,6 @@ useEffect(() => {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        {/* Watermark Background */}
-        <Typo
-          size={70}
-          fontWeight="800"
-          color={colors.textSecondary}
-          style={styles.backgroundText}
-        >
-          Solar Monitor
-        </Typo>
-
         {/* Header */}
         <View style={styles.header}>
           <View>
@@ -378,74 +373,39 @@ useEffect(() => {
           </Typo>
         </View>
 
-        {/* <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Typo size={16} fontWeight="600">Sensor Data</Typo>
-            <Icons.WifiHigh size={24} color={colors.primary} weight="fill" />
-          </View>
-
-          {sensorLoading && (
-            <Typo size={14} color={colors.textSecondary}>Loading latest data...</Typo>
-          )}
-
-          {!sensorLoading && sensorError && (
-            <Typo size={14} color="#ff6b6b">Error: {sensorError}</Typo>
-          )}
-
-          {!sensorLoading && !sensorError && sensorEntries.length === 0 && (
-            <Typo size={14} color={colors.textSecondary}>No sensor values found.</Typo>
-          )}
-
-          {!sensorLoading && !sensorError && sensorEntries.length > 0 && (
-            <View style={styles.sensorList}>
-              {sensorEntries.map(([key, value]) => (
-                <View key={key} style={styles.sensorRow}>
-                  <Typo size={13} color={colors.textSecondary}>
-                    {key}
-                  </Typo>
-                  <Typo size={14} fontWeight="600">
-                    {String(value)}
-                  </Typo>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <View style={styles.cardFooter}>
-            <Typo size={12} color={colors.textSecondary}>
-              {lastUpdated ? `Last updated ${lastUpdated.toLocaleTimeString()}` : 'Not updated yet'}
-            </Typo>
-            <Typo size={12} color={colors.primary} fontWeight="600">Live API</Typo>
-          </View>
-        </View> */}
-
         {/* Solar Prediction Card */}
         <View style={styles.card}>
-  <View style={styles.cardHeader}>
-    <Typo size={16} fontWeight="600">Solar Prediction</Typo>
-    <Icons.Sun size={24} color={colors.primary} weight="fill" />
-  </View>
+          <View style={styles.cardHeader}>
+            <Typo size={16} fontWeight="600">
+              Solar Prediction
+            </Typo>
+            <Icons.Sun size={24} color={colors.primary} weight="fill" />
+          </View>
 
-  <Typo size={36} fontWeight="700" style={styles.cardValue}>
-    {solarLoading
-      ? "Loading..."
-      : solarError
-      ? "1.16 kWh"
-      : solarPrediction !== null
-      ? `${solarPrediction} kWh`
-      : "-"}
-  </Typo>
+          <Typo size={36} fontWeight="700" style={styles.cardValue}>
+            {solarLoading
+              ? "Loading..."
+              : solarError
+                ? "1.16 kWh"
+                : solarPrediction !== null
+                  ? `${solarPrediction} kWh`
+                  : "-"}
+          </Typo>
 
-  <Typo size={12} color={colors.textSecondary} style={styles.cardSubValue}>
-    {solarLoading
-      ? "Fetching latest prediction..."
-      : solarError
-      ? solarError
-      : "Peak expected at 12:45 PM"}
-  </Typo>
+          <Typo
+            size={12}
+            color={colors.textSecondary}
+            style={styles.cardSubValue}
+          >
+            {solarLoading
+              ? "Fetching latest prediction..."
+              : solarError
+                ? solarError
+                : "Peak expected at 12:45 PM"}
+          </Typo>
 
-  {/* Mini Graph (optional, can reuse solarGraphData from state if needed) */}
-</View>
+          {/* Mini Graph (optional, can reuse solarGraphData from state if needed) */}
+        </View>
 
         {/* Battery Runtime Card */}
         <View style={styles.card}>
@@ -468,9 +428,7 @@ useEffect(() => {
             </Typo>
             <Typo size={12} color={colors.primary} fontWeight="600">
               Stable
-              Today App Opens: {awsAppVisitCount ?? "-"}
             </Typo>
-            
           </View>
         </View>
 
@@ -488,6 +446,33 @@ useEffect(() => {
           <Typo size={12} color={colors.textSecondary}>
             Remaining at current load
           </Typo>
+        </View>
+
+        {/* App Open Count Card */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Typo size={16} fontWeight="600">
+              App Opens Today
+            </Typo>
+            <Icons.ChartBar size={24} color={colors.primary} weight="fill" />
+          </View>
+
+          <Typo size={36} fontWeight="700" style={styles.cardValue}>
+            {awsAppVisitCount ?? "-"}
+          </Typo>
+
+          <Typo size={12} color={colors.textSecondary}>
+            Number of times the app was opened today
+          </Typo>
+
+          <View style={styles.cardFooter}>
+            <Typo size={12} color={colors.textSecondary}>
+              Updated in real time
+            </Typo>
+            <Typo size={12} color={colors.primary} fontWeight="600">
+              Live
+            </Typo>
+          </View>
         </View>
 
         {/* Data Sync Card */}
@@ -548,7 +533,7 @@ useEffect(() => {
               color={colors.textPrimary}
               style={{ flex: 1, marginLeft: 10 }}
             >
-               {syncStatus.deviceCount} device synced
+              {syncStatus.deviceCount} device synced
             </Typo>
             <Icons.ArrowUpRight
               size={16}
@@ -571,17 +556,13 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacingX._20,
     paddingTop: spacingY._10,
-    paddingBottom: spacingY._30,
     gap: spacingY._20,
   },
   backgroundText: {
-    position: "absolute",
-    top: verticalScale(400),
-    alignSelf: "center",
-    opacity: 0.06,
     textTransform: "uppercase",
     letterSpacing: 4,
-    zIndex: -1,
+    lineHeight: 70,
+    opacity: 1.5,
   },
   header: {
     flexDirection: "row",
@@ -751,17 +732,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.1)",
   },
-  sensorList: {
-    gap: 8,
-    marginTop: 4,
+  backgroundContainer: {
+    opacity: 0.05,
+    marginTop: 470
   },
-  sensorRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  watermarkWrapper: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+    pointerEvents: "none",
   },
 });

@@ -1,57 +1,67 @@
-import { colors, spacingY } from '@/constants/theme';
-import { verticalScale } from '@/utils/styling';
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Text } from '@react-navigation/elements';
-import * as Icons from 'phosphor-react-native';
-import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { colors, spacingY } from "@/constants/theme";
+import { verticalScale } from "@/utils/styling";
+import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import * as Icons from "phosphor-react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export default function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
-
+export default function CustomTabBar({
+  state,
+  descriptors,
+  navigation,
+}: BottomTabBarProps) {
   const tabbarIcons: any = {
-     home: (isFocused: boolean) => (
-        <Icons.HouseIcon 
+    home: (isFocused: boolean) => (
+      <Icons.HouseIcon
         size={verticalScale(30)}
-        weight={isFocused ? 'fill' : 'regular'}
-        color={isFocused ? colors.primary : colors.textPrimary} />  
-      ),
-      mirrorRedirect: (isFocused: boolean) => (
-        <Icons.LightningAIcon 
+        weight={isFocused ? "fill" : "regular"}
+        color={isFocused ? colors.primary : colors.textPrimary}
+      />
+    ),
+    mirrorRedirect: (isFocused: boolean) => (
+      <Icons.LightningAIcon
         size={verticalScale(30)}
-        weight={isFocused ? 'fill' : 'regular'}
-        color={isFocused ? colors.primary : colors.textPrimary} />  
-      ),
-      solarForecasting: (isFocused: boolean) => (
-        <Icons.SunIcon 
+        weight={isFocused ? "fill" : "regular"}
+        color={isFocused ? colors.primary : colors.textPrimary}
+      />
+    ),
+    solarForecasting: (isFocused: boolean) => (
+      <Icons.SunIcon
         size={verticalScale(30)}
-        weight={isFocused ? 'fill' : 'regular'}
-        color={isFocused ? colors.primary : colors.textPrimary} />  
-      ),
-      batteryOptimization: (isFocused: boolean) => (
-        <Icons.BatteryChargingIcon 
+        weight={isFocused ? "fill" : "regular"}
+        color={isFocused ? colors.primary : colors.textPrimary}
+      />
+    ),
+    batteryOptimization: (isFocused: boolean) => (
+      <Icons.BatteryChargingIcon
         size={verticalScale(30)}
-        weight={isFocused ? 'fill' : 'regular'}
-        color={isFocused ? colors.primary : colors.textPrimary} />  
-      ),
-      dataManagement: (isFocused: boolean) => (
-        <Icons.DatabaseIcon
+        weight={isFocused ? "fill" : "regular"}
+        color={isFocused ? colors.primary : colors.textPrimary}
+      />
+    ),
+    dataManagement: (isFocused: boolean) => (
+      <Icons.DatabaseIcon
         size={verticalScale(30)}
-        weight={isFocused ? 'fill' : 'regular'}
-        color={isFocused ? colors.primary : colors.textPrimary} />  
-      ),
-      profile: (isFocused: boolean) => (
-        <Icons.UserCircleIcon
+        weight={isFocused ? "fill" : "regular"}
+        color={isFocused ? colors.primary : colors.textPrimary}
+      />
+    ),
+    profile: (isFocused: boolean) => (
+      <Icons.UserCircleIcon
         size={verticalScale(30)}
-        weight={isFocused ? 'fill' : 'regular'}
-        color={isFocused ? colors.primary : colors.textPrimary} />  
-      )
-  }
+        weight={isFocused ? "fill" : "regular"}
+        color={isFocused ? colors.primary : colors.textPrimary}
+      />
+    ),
+  };
 
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.tabbar}>
+    <View style={[styles.tabbar, { paddingBottom: insets.bottom }]}>
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
-        const label : any =
+        const label: any =
           options.tabBarLabel !== undefined
             ? options.tabBarLabel
             : options.title !== undefined
@@ -62,7 +72,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
 
         const onPress = () => {
           const event = navigation.emit({
-            type: 'tabPress',
+            type: "tabPress",
             target: route.key,
             canPreventDefault: true,
           });
@@ -74,7 +84,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
 
         const onLongPress = () => {
           navigation.emit({
-            type: 'tabLongPress',
+            type: "tabLongPress",
             target: route.key,
           });
         };
@@ -90,9 +100,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
             onLongPress={onLongPress}
             style={styles.tabbarItem}
           >
-            {
-              tabbarIcons[route.name] && tabbarIcons[route.name](isFocused)
-            }
+            {tabbarIcons[route.name] && tabbarIcons[route.name](isFocused)}
           </TouchableOpacity>
         );
       })}
@@ -101,21 +109,20 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
 }
 
 const styles = StyleSheet.create({
-   tabbar: {
-    flexDirection: 'row', 
-    width: '100%', 
-    height: Platform.OS === 'ios'? verticalScale(73) : verticalScale(60),
+  tabbar: {
+    flexDirection: "row",
+    width: "100%",
     backgroundColor: colors.tabBar,
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    overflow: 'hidden',
-    borderTopColor: '#214656',
+    justifyContent: "space-around",
+    alignItems: "center",
+    overflow: "hidden",
+    borderTopColor: "#214656",
     borderTopWidth: 1,
-   },
-   tabbarItem: {
-     marginBottom: Platform.OS === 'ios' ? spacingY._10 : spacingY._5,
-     justifyContent: 'center',
-     alignItems: 'center',
-
-   }
-})
+    paddingTop: 10
+  },
+  tabbarItem: {
+    marginBottom: Platform.OS === "ios" ? spacingY._10 : spacingY._5,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+});

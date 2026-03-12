@@ -15,12 +15,10 @@ import {
 } from "react-native";
 
 const BATTERY_PREDICTION_API_URL =
-  "https://ww4gn1az54.execute-api.eu-north-1.amazonaws.com/predict";
-
+   process.env.EXPO_PUBLIC_BATTERY_PREDICTION_API_URL as string;
 const BATTERY_RESULT_API =
-  "https://dj6ijy2cpk.execute-api.eu-north-1.amazonaws.com/get-result";
-
-const BATTERY_DEVICE_ID = "Raspberry";
+  process.env.EXPO_PUBLIC_BATTERY_RESULT_API_URL as string;
+const BATTERY_DEVICE_ID = process.env.EXPO_PUBLIC_SOLAR_DEVICE_ID as string;
 
 const BatteryOptimization = () => {
 

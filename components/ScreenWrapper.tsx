@@ -1,28 +1,31 @@
-import { Dimensions, Platform, StatusBar, StyleSheet, Text, View } from 'react-native'
-import React from 'react'
-import { ScreenWrapperProps } from '@/types'
-import { colors } from '@/constants/theme';
+import { colors } from "@/constants/theme";
+import { ScreenWrapperProps } from "@/types";
+import React from "react";
+import { StatusBar, StyleSheet } from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
-const {height} =  Dimensions.get('window');
-
-const ScreenWrapper = ({style, children}: ScreenWrapperProps) => {
-    let paddingTop = Platform.OS === 'ios' ? height * 0.06 : 20;
+const ScreenWrapper = ({ style, children }: ScreenWrapperProps) => {
+  const insets = useSafeAreaInsets();
   return (
-    <View
+    <SafeAreaView
       style={[
         {
-         paddingTop,
-        flex: 1,
-        backgroundColor: colors.background,
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingTop: insets.top,
         },
         style,
-      ]} >
-        <StatusBar barStyle='light-content'/>
-        {children}
-    </View>
-  )
-}
+      ]}
+    >
+      <StatusBar barStyle="light-content" />
+      {children}
+    </SafeAreaView>
+  );
+};
 
-export default ScreenWrapper
+export default ScreenWrapper;
 
-const styles = StyleSheet.create({})
+const styles = StyleSheet.create({});
