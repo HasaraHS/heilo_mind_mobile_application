@@ -388,7 +388,7 @@ const Home = () => {
               : solarError
                 ? "1.16 kWh"
                 : solarPrediction !== null
-                  ? `${solarPrediction} kWh`
+                  ? `${Number(solarPrediction).toFixed(2)} kWh`
                   : "-"}
           </Typo>
 
