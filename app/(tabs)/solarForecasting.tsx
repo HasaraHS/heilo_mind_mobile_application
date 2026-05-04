@@ -8,6 +8,7 @@ import * as Icon from "phosphor-react-native";
 import React, { useState, useEffect } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Dimensions, FlatList } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const SOLAR_PREDICTION_API_URL =
   process.env.EXPO_PUBLIC_SOLAR_PREDICTION_API_URL as string;
@@ -20,43 +21,11 @@ const SolarForecasting = () => {
   const [selectedTab, setSelectedTab] = useState("Today");
   const [isPredicting, setIsPredicting] = useState(false);
 
-  const tabs = ["Today", "Yesterday", "7 Days"];
+  const tabs = ["Today", "Yesterday", "2 Days Ago"];
 
   const [sensorData, setSensorData] = useState<any[]>([]);
 
-  const graphData: { [key: string]: { time: string; value: number }[] } = {
-  Today: [
-    { time: "06:00", value: 0.2 },
-    { time: "08:00", value: 0.4 },
-    { time: "10:00", value: 0.8 },
-    { time: "12:00", value: 1.2 },
-    { time: "14:00", value: 1.5 },
-    { time: "16:00", value: 1.1 },
-    { time: "18:00", value: 0.6 },
-    { time: "20:00", value: 0.2 },
-  ],
-
-  Yesterday: [
-    { time: "06:00", value: 0.1 },
-    { time: "08:00", value: 0.3 },
-    { time: "10:00", value: 0.7 },
-    { time: "12:00", value: 1.0 },
-    { time: "14:00", value: 0.7 },
-    { time: "16:00", value: 0.4 },
-    { time: "18:00", value: 0.15 },
-    { time: "20:00", value: 0.05 },
-  ],
-
-  "7 Days": [
-    { time: "Mon", value: 2.8 },
-    { time: "Tue", value: 3.1 },
-    { time: "Wed", value: 3.6 },
-    { time: "Thu", value: 3.2 },
-    { time: "Fri", value: 3.8 },
-    { time: "Sat", value: 3.4 },
-    { time: "Sun", value: 4.0 },
-  ],
-};
+  
 
   const buildGraphData = () => {
   if (!sensorData || sensorData.length === 0) return [];
@@ -70,9 +39,45 @@ const SolarForecasting = () => {
   }));
 };
 
-  const currentData =
-  selectedTab === "Today" ? buildGraphData() : graphData[selectedTab];
-  const graphWidth = 320;
+const [predictions, setPredictions] = useState([
+  { id: "1", label: "2 Days Ago", value: 0 },
+  { id: "2", label: "Yesterday", value: 0 },
+  { id: "3", label: "Today", value: 0 },
+]);
+
+const generateHourlyGraph = (dailyTotal: number) => {
+  const hours = [];
+
+  for (let hour = 0; hour < 24; hour++) {
+
+    let value = 0;
+
+    // Simulate solar curve
+    if (hour >= 6 && hour <= 18) {
+
+      // Peak at noon
+      const distanceFromNoon = Math.abs(12 - hour);
+
+      const intensity = Math.max(0, 1 - distanceFromNoon / 6);
+
+      value = (dailyTotal / 6) * intensity;
+    }
+
+    hours.push({
+      time: `${hour.toString().padStart(2, "0")}:00`,
+      value: parseFloat(value.toFixed(2)),
+    });
+  }
+
+  return hours;
+};
+
+
+  const selectedPrediction =
+  predictions.find((p) => p.label === selectedTab)?.value || 0;
+
+  const currentData = generateHourlyGraph(selectedPrediction);
+  const graphWidth = 700;
   const graphHeight = 150;
   const maxValue = 4;
 
@@ -133,11 +138,22 @@ const SolarForecasting = () => {
 
   const locationName = "Malabe, Sri Lanka";
 
-  const [predictions, setPredictions] = useState([
-  { id: "1", label: "2 Days Ago", value: 2.6 },
-  { id: "2", label: "Yesterday", value: 3.4 },
-  { id: "3", label: "Today", value: 0 },
-]);
+
+const loadStoredPredictions = async () => {
+  try {
+    const stored = await AsyncStorage.getItem("solar_predictions");
+
+    if (stored) {
+      setPredictions(JSON.parse(stored));
+    }
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+useEffect(() => {
+  loadStoredPredictions();
+}, []);
 
 const { width } = Dimensions.get("window");
 const cardWidth = width * 0.75;
@@ -277,13 +293,50 @@ const cardWidth = width * 0.75;
       const predictionValue = extractSolarResultValue(resultData);
 
       if (typeof predictionValue === "number") {
-  setPredictions((prev) =>
-    prev.map((item) =>
-      item.label === "Today"
-        ? { ...item, value: parseFloat(Number(predictionValue).toFixed(2))}
-        : item
-    )
+
+  // REAL prediction from API
+  const todayValue = parseFloat(
+    Number(predictionValue).toFixed(2)
   );
+
+  // Temporary generated yesterday value
+  const yesterdayValue = parseFloat(
+    (todayValue * 0.93).toFixed(2)
+  );
+
+  // Temporary generated 2 days ago value
+  const twoDaysAgoValue = parseFloat(
+    (todayValue * 0.88).toFixed(2)
+  );
+
+  const updatedPredictions = [
+    {
+      id: "1",
+      label: "2 Days Ago",
+      value: twoDaysAgoValue,
+    },
+    {
+      id: "2",
+      label: "Yesterday",
+      value: yesterdayValue,
+    },
+    {
+      id: "3",
+      label: "Today",
+      value: todayValue,
+    },
+  ];
+
+  // Update UI
+  setPredictions(updatedPredictions);
+
+  // Store locally
+  await AsyncStorage.setItem(
+    "solar_predictions",
+    JSON.stringify(updatedPredictions)
+  );
+
+  console.log("Stored predictions:", updatedPredictions);
 }
       const predictionText =
         typeof predictionValue === "number"
@@ -386,7 +439,8 @@ const cardWidth = width * 0.75;
                 ENERGY GENERATION (kWh)
               </Typo>
 
-              <View style={styles.graphCard}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={[styles.graphCard, { width: graphWidth + 40 }]}>
 
                 <View style={styles.chartArea}>
                   {/* Line Chart */}
@@ -423,6 +477,7 @@ const cardWidth = width * 0.75;
                   ))}
                 </View>
               </View>
+              </ScrollView>
             </View>
 
             {/* Notification Section */}
