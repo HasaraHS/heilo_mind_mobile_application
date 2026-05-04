@@ -1,0 +1,686 @@
+#!/usr/bin/env python3
+"""
+Main IoT Core Application - Reads Arduino Serial data, sends for solar prediction,
+and handles mobile requests for last 24h prediction
+"""
+
+import json
+import logging
+import os
+import sys
+import threading
+import queue
+import time
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Dict, Any, Optional
+import signal
+from pathlib import Path
+import serial
+import serial.tools.list_ports
+import boto3
+from boto3.dynamodb.conditions import Key, Attr
+
+# AWS IoT Core imports
+from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('iot_app.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+
+def decimal_to_float(obj):
+    """Convert DynamoDB Decimal values into JSON-serializable numbers."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {key: decimal_to_float(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [decimal_to_float(item) for item in obj]
+    return obj
+
+# =============================
+# AWS Settings for Mobile Requests
+# =============================
+MOBILE_REQUEST_TOPIC = "raspberrypi/request"
+MOBILE_RESPONSE_TOPIC = "raspberrypi/userappvisits/data"
+SENSOR_DATA_TABLE = "SensorData"  # Your actual table name
+REGION = "eu-north-1"
+
+
+class ArduinoReader:
+    """Reads data from Arduino via Serial"""
+    
+    def __init__(self, port=None, baud_rate=9600):
+        self.port = port
+        self.baud_rate = baud_rate
+        self.serial_conn = None
+        self.running = False
+        self.latest_data = {}
+        self.data_history = []
+        self.lock = threading.Lock()
+        self.on_new_data = None
+        
+    def find_arduino_port(self):
+        """Auto-detect Arduino port"""
+        ports = list(serial.tools.list_ports.comports())
+        for port in ports:
+            if any(keyword in port.description.lower() for keyword in ['arduino', 'ch340', 'usb serial']):
+                logger.info(f"Found Arduino on {port.device}")
+                return port.device
+        return None
+    
+    def connect(self):
+        """Connect to Arduino with non-blocking timeout"""
+        try:
+            if not self.port:
+                self.port = self.find_arduino_port()
+            
+            if not self.port:
+                logger.error("Could not find Arduino port")
+                return False
+            
+            self.serial_conn = serial.Serial(
+                port=self.port,
+                baudrate=self.baud_rate,
+                timeout=0,
+                write_timeout=1
+            )
+            logger.info(f"✅ Connected to Arduino on {self.port}")
+            
+            time.sleep(2)
+            self.serial_conn.reset_input_buffer()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to connect to Arduino: {e}")
+            return False
+    
+    def parse_arduino_data(self, line: str) -> Dict[str, float]:
+        """Parse Arduino data format"""
+        try:
+            data = {}
+            line = line.strip()
+            pairs = line.split(',')
+            
+            for pair in pairs:
+                if ':' in pair:
+                    key, value = pair.split(':', 1)
+                    try:
+                        data[key] = float(value)
+                    except ValueError:
+                        data[key] = value
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error parsing Arduino data: {e}")
+            return {}
+    
+    def read_loop(self):
+        """Continuous reading from Arduino"""
+        buffer = ""
+        
+        while self.running:
+            try:
+                if self.serial_conn and self.serial_conn.in_waiting:
+                    raw = self.serial_conn.read(self.serial_conn.in_waiting)
+                    buffer += raw.decode('utf-8', errors='ignore')
+                    
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        line = line.strip()
+                        
+                        if line:
+                            logger.debug(f"Arduino: {line}")
+                            data = self.parse_arduino_data(line)
+                            
+                            if data:
+                                with self.lock:
+                                    self.latest_data = data
+                                    self.data_history.append(data)
+                                    if len(self.data_history) > 100:
+                                        self.data_history = self.data_history[-100:]
+                                
+                                if 'SOLAR' in data:
+                                    logger.info(f"📊 SOLAR: {data['SOLAR']}V, BATT: {data.get('BATT', 'N/A')}V")
+                                
+                                if self.on_new_data:
+                                    self.on_new_data(data)
+                
+                else:
+                    time.sleep(0.01)
+                    
+            except serial.SerialException as e:
+                logger.error(f"Serial exception: {e}")
+                time.sleep(1)
+            except Exception as e:
+                logger.error(f"Error reading from Arduino: {e}")
+                time.sleep(0.1)
+    
+    def start(self, on_data_callback=None):
+        self.on_new_data = on_data_callback
+        self.running = True
+        thread = threading.Thread(target=self.read_loop, daemon=True)
+        thread.start()
+        logger.info("📡 Arduino reader started")
+        
+    def stop(self):
+        self.running = False
+        if self.serial_conn:
+            self.serial_conn.close()
+            logger.info("🔌 Arduino disconnected")
+    
+    def get_sensor_data_for_prediction(self) -> Optional[list]:
+        """Format sensor data for solar prediction model"""
+        with self.lock:
+            if len(self.data_history) < 24:
+                logger.warning(f"Not enough data for prediction: {len(self.data_history)}/24 readings")
+                return None
+            
+            last_24 = self.data_history[-24:]
+            sensor_array = []
+            for reading in last_24:
+                lux = reading.get('LUX', 0) / 1000.0
+                temp = reading.get('TEMP', 25.0)
+                hum = reading.get('HUM', 50.0)
+                sensor_array.append([lux, temp, hum])
+            
+            return sensor_array
+
+
+class SolarPredictionHandler:
+    """Handler for solar prediction results - FIXED DynamoDB saving"""
+    
+    def __init__(self):
+        self.predictions = {}
+        self.prediction_callbacks = {}
+        self.lock = threading.Lock()
+        self.dynamodb = boto3.resource('dynamodb', region_name=REGION)
+        self.sensor_table = self.dynamodb.Table(SENSOR_DATA_TABLE)
+        
+    def handle_prediction_result(self, payload: Dict[str, Any]):
+        """Handle incoming prediction result and save to DynamoDB"""
+        try:
+            request_id = payload.get('requestId') or payload.get('request_id')
+            if not request_id:
+                logger.error("No requestId in prediction result")
+                return
+            
+            total_energy_formatted = payload.get('total_energy', payload.get('total_energy_formatted', 'N/A'))
+            total_energy_kwh = payload.get('total_energy_kwh', 0)
+            device_id = payload.get('deviceId', 'unknown')
+            timestamp = payload.get('timestamp', time.time())
+            hourly_energy = payload.get('hourly_energy', [])
+            irradiance = payload.get('irradiance', [])
+            inference_time_ms = payload.get('inference_time_ms', 0)
+            
+            with self.lock:
+                self.predictions[request_id] = {
+                    'request_id': request_id,
+                    'device_id': device_id,
+                    'total_energy_formatted': total_energy_formatted,
+                    'total_energy_kwh': total_energy_kwh,
+                    'timestamp': timestamp,
+                    'received_at': time.time(),
+                    'full_response': payload
+                }
+                if request_id in self.prediction_callbacks:
+                    callback = self.prediction_callbacks.pop(request_id)
+                    callback(self.predictions[request_id])
+            
+            logger.info("=" * 60)
+            logger.info(f"✅ SOLAR PREDICTION RESULT RECEIVED")
+            logger.info(f"📊 Request ID: {request_id}")
+            logger.info(f"⚡ {total_energy_formatted}")
+            logger.info("=" * 60)
+            
+            # SAVE TO DYNAMODB - FIXED
+            self._save_prediction_to_dynamodb({
+                'deviceId': device_id,
+                'timestamp': int(timestamp),  # Sort key
+                'requestId': request_id,
+                'data_type': 'solar_prediction',
+                'total_energy_formatted': total_energy_formatted,
+                'total_energy_kwh': Decimal(str(total_energy_kwh)),
+                'timestamp_iso': datetime.fromtimestamp(timestamp).isoformat(),
+                'hourly_energy': hourly_energy,
+                'irradiance': irradiance,
+                'inference_time_ms': Decimal(str(inference_time_ms))
+            })
+            
+            # Backup to file
+            self._save_prediction_to_file(self.predictions[request_id])
+            
+        except Exception as e:
+            logger.error(f"Error handling prediction result: {e}")
+    
+    def _save_prediction_to_dynamodb(self, item: Dict[str, Any]):
+        """Save prediction to SensorData table"""
+        try:
+            self.sensor_table.put_item(Item=item)
+            logger.info(f"💾 Prediction SAVED to DynamoDB: {SENSOR_DATA_TABLE}")
+            logger.info(f"   Device: {item['deviceId']}, Energy: {item['total_energy_formatted']}")
+        except Exception as e:
+            logger.error(f"Failed to save prediction to DynamoDB: {e}")
+    
+    def _save_prediction_to_file(self, prediction: Dict[str, Any]):
+        """Save prediction to file as backup"""
+        try:
+            os.makedirs("predictions", exist_ok=True)
+            filename = f"predictions/prediction_{prediction['request_id']}.json"
+            with open(filename, 'w') as f:
+                json.dump(prediction, f, indent=2, default=str)
+            logger.info(f"💾 Prediction saved to file: {filename}")
+        except Exception as e:
+            logger.error(f"Error saving prediction to file: {e}")
+    
+    def get_prediction(self, request_id: str) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            return self.predictions.get(request_id)
+    
+    def wait_for_prediction(self, request_id: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
+        result_queue = queue.Queue()
+        def callback(pred):
+            result_queue.put(pred)
+        with self.lock:
+            if request_id in self.predictions:
+                return self.predictions[request_id]
+            self.prediction_callbacks[request_id] = callback
+        try:
+            return result_queue.get(timeout=timeout)
+        except queue.Empty:
+            with self.lock:
+                self.prediction_callbacks.pop(request_id, None)
+            return None
+    
+    def get_last_24h_prediction(self) -> Optional[Dict[str, Any]]:
+        """Get the most recent prediction from last 24 hours - FIXED"""
+        try:
+            twenty_four_hours_ago = time.time() - (24 * 3600)
+            
+            # Scan for predictions from last 24 hours
+            response = self.sensor_table.scan()
+            items = response.get('Items', [])
+            
+            # Filter for solar predictions only
+            recent_predictions = []
+            for item in items:
+                if item.get('data_type') == 'solar_prediction':
+                    item_timestamp = float(item.get('timestamp', 0))
+                    if item_timestamp >= twenty_four_hours_ago:
+                        recent_predictions.append(item)
+            
+            if not recent_predictions:
+                logger.warning("No solar predictions found in last 24 hours")
+                return None
+            
+            # Sort and get latest
+            recent_predictions.sort(key=lambda x: float(x.get('timestamp', 0)), reverse=True)
+            latest = recent_predictions[0]
+            
+            logger.info(f"Found prediction from {datetime.fromtimestamp(float(latest['timestamp']))}")
+            return latest
+            
+        except Exception as e:
+            logger.error(f"DynamoDB query error: {e}")
+            return None
+
+
+class MobileRequestHandler:
+    """Handles mobile requests with requestId starting with "EN" - FIXED"""
+    
+    def __init__(self, solar_handler: SolarPredictionHandler):
+        self.solar_handler = solar_handler
+        self.dynamodb = boto3.resource('dynamodb', region_name=REGION)
+        self.sensor_table = self.dynamodb.Table(SENSOR_DATA_TABLE)
+        
+    def handle_mobile_request(self, request_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        logger.info(f"📱 Processing mobile request with ID: {request_id}")
+        
+        # Get the latest prediction from the last 24 hours
+        prediction = self.solar_handler.get_last_24h_prediction()
+        
+        if prediction:
+            response = {
+                'requestId': request_id,
+                'status': 'success',
+                'data': {
+                    'total_energy_kwh': float(prediction.get('total_energy_kwh', 0)),
+                    'total_energy_formatted': prediction.get('total_energy_formatted', 'N/A'),
+                    'timestamp': float(prediction.get('timestamp', time.time())),
+                    'timestamp_str': prediction.get('timestamp_iso', datetime.now().isoformat()),
+                    'inference_time_ms': float(prediction.get('inference_time_ms', 0)),
+                    'hourly_energy': prediction.get('hourly_energy', []),
+                    'irradiance': prediction.get('irradiance', [])
+                },
+                'retrieved_at': time.time()
+            }
+            logger.info(f"✅ Mobile response prepared: {response['data']['total_energy_formatted']}")
+            
+            # Save mobile response to DynamoDB
+            try:
+                item = {
+                    'deviceId': 'mobile_app',
+                    'timestamp': int(time.time()),
+                    'requestId': request_id,
+                    'data_type': 'mobile_response',
+                    'timestamp_iso': datetime.now().isoformat(),
+                    'response_data': response,
+                    'total_energy_kwh': Decimal(str(response['data']['total_energy_kwh'])),
+                    'total_energy_formatted': response['data']['total_energy_formatted'],
+                    'status': 'success'
+                }
+                self.sensor_table.put_item(Item=item)
+                logger.info(f"💾 Mobile response SAVED to DynamoDB")
+            except Exception as e:
+                logger.error(f"Failed to save mobile response: {e}")
+        else:
+            response = {
+                'requestId': request_id,
+                'status': 'error',
+                'message': 'No prediction data available for last 24 hours',
+                'timestamp': time.time()
+            }
+            logger.warning(f"⚠️ No prediction data for request {request_id}")
+        
+        return response
+
+
+class IoTModelProcessor:
+    def __init__(self, config_path: str = "config.json"):
+        self.config = self.load_config(config_path)
+        self.models = {}
+        self.request_queue = queue.Queue()
+        self.running = False
+        self.processing_threads = []
+        self.mqtt_client = None
+        self.dynamodb = None
+        self.sensor_table = None
+        
+        self.arduino = ArduinoReader(
+            port=self.config.get("arduino_port", None),
+            baud_rate=self.config.get("arduino_baud", 9600)
+        )
+        
+        self.solar_handler = SolarPredictionHandler()
+        self.mobile_handler = MobileRequestHandler(self.solar_handler)
+        
+        self.prediction_timer = None
+        self.prediction_interval = self.config.get("prediction_interval", 3600)
+        
+        self.models_path = Path(self.config.get("models_path", "./models"))
+        self.data_path = Path(self.config.get("data_path", "./data"))
+        self.models_path.mkdir(exist_ok=True)
+        self.data_path.mkdir(exist_ok=True)
+        Path("predictions").mkdir(exist_ok=True)
+        
+        # Initialize DynamoDB
+        self.dynamodb = boto3.resource('dynamodb', region_name=REGION)
+        self.sensor_table = self.dynamodb.Table(SENSOR_DATA_TABLE)
+        
+    def load_config(self, config_path: str) -> Dict[str, Any]:
+        default_config = {
+            "aws_iot": {
+                "endpoint": "ajmja1mzmi1j4-ats.iot.eu-north-1.amazonaws.com",
+                "port": 8883,
+                "root_ca": "./certs/AmazonRootCA1.pem",
+                "private_key": "./certs/private.pem.key",
+                "certificate": "./certs/certificate.pem.crt",
+                "client_id": "iot_model_processor",
+                "subscribe_topics": [
+                    "solar/prediction/result",
+                    "solar/prediction/response",
+                    "raspberrypi/request"
+                ],
+                "publish_topic": "solar/prediction/request",
+                "mobile_response_topic": MOBILE_RESPONSE_TOPIC
+            },
+            "arduino_port": '/dev/ttyACM0',
+            "arduino_baud": 9600,
+            "models_path": "./models",
+            "data_path": "./data",
+            "num_processing_threads": 4,
+            "prediction_interval": 3600,
+            "auto_predict": True
+        }
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    loaded = json.load(f)
+                    default_config.update(loaded)
+            else:
+                with open(config_path, 'w') as f:
+                    json.dump(default_config, f, indent=2)
+        except Exception as e:
+            logger.error(f"Config error: {e}")
+        return default_config
+    
+    def setup_aws_iot(self):
+        aws = self.config["aws_iot"]
+        self.mqtt_client = AWSIoTMQTTClient(aws["client_id"])
+        self.mqtt_client.configureEndpoint(aws["endpoint"], aws["port"])
+        self.mqtt_client.configureCredentials(aws["root_ca"], aws["private_key"], aws["certificate"])
+        self.mqtt_client.configureAutoReconnectBackoffTime(1, 32, 20)
+        self.mqtt_client.configureOfflinePublishQueueing(-1)
+        self.mqtt_client.configureDrainingFrequency(2)
+        self.mqtt_client.configureConnectDisconnectTimeout(10)
+        self.mqtt_client.configureMQTTOperationTimeout(5)
+        self.mqtt_client.connect()
+        logger.info("✅ Connected to AWS IoT Core")
+        for topic in aws["subscribe_topics"]:
+            self.mqtt_client.subscribe(topic, 1, self.mqtt_message_callback)
+            logger.info(f"📡 Subscribed to {topic}")
+    
+    def mqtt_message_callback(self, client, userdata, message):
+        try:
+            payload = json.loads(message.payload.decode('utf-8'))
+            topic = message.topic
+            if topic in ["solar/prediction/result", "solar/prediction/response"]:
+                self.solar_handler.handle_prediction_result(payload)
+            elif topic == "raspberrypi/request":
+                self.handle_mobile_request(payload)
+            else:
+                self.request_queue.put({'topic': topic, 'payload': payload, 'timestamp': time.time()})
+        except Exception as e:
+            logger.error(f"MQTT callback error: {e}")
+    
+    def handle_mobile_request(self, payload: Dict[str, Any]):
+        request_id = payload.get('requestId') or payload.get('request_id')
+        if not request_id:
+            logger.error("No requestId in mobile request")
+            return
+        if request_id.upper().startswith('EN'):
+            logger.info(f"📱 Mobile request received with ID: {request_id}")
+            response = self.mobile_handler.handle_mobile_request(request_id, payload)
+            response = decimal_to_float(response)
+            self.mqtt_client.publish(
+                self.config["aws_iot"]["mobile_response_topic"],
+                json.dumps(response),
+                1
+            )
+            logger.info(f"📤 Mobile response sent to {self.config['aws_iot']['mobile_response_topic']}")
+    
+    def send_prediction_request(self, sensor_data: list, device_id: str = "Arduino_RPi") -> str:
+        request_id = f"arduino_{int(time.time() * 1000)}"
+        request = {"requestId": request_id, "deviceId": device_id, "sensor_data": sensor_data}
+        self.mqtt_client.publish(self.config["aws_iot"]["publish_topic"], json.dumps(request), 1)
+        logger.info(f"📤 Sent prediction request {request_id}")
+        return request_id
+    
+    def on_arduino_data(self, data: Dict[str, float]):
+        """Save Arduino sensor data to DynamoDB"""
+        try:
+            item = {
+                'deviceId': 'arduino_rpi',
+                'timestamp': int(time.time()),
+                'data_type': 'sensor_reading',
+                'timestamp_iso': datetime.now().isoformat(),
+                'temperature': Decimal(str(data.get('TEMP', 0))),
+                'humidity': Decimal(str(data.get('HUM', 0))),
+                'lux': Decimal(str(data.get('LUX', 0))),
+                'solar_voltage': Decimal(str(data.get('SOLAR', 0))),
+                'battery_voltage': Decimal(str(data.get('BATT', 0))),
+                'servo9': int(data.get('SERVO9', 0)),
+                'servo10': int(data.get('SERVO10', 0)),
+                'servo11': int(data.get('SERVO11', 0)),
+                'servo12': int(data.get('SERVO12', 0))
+            }
+            
+            self.sensor_table.put_item(Item=item)
+            logger.debug(f"💾 Sensor data saved to DynamoDB")
+        except Exception as e:
+            logger.error(f"Failed to save sensor data: {e}")
+    
+    def auto_predict(self):
+        while self.running:
+            sensor_data = self.arduino.get_sensor_data_for_prediction()
+            if sensor_data:
+                logger.info(f"Auto-predict: {len(sensor_data)} readings")
+                request_id = self.send_prediction_request(sensor_data, "Arduino_RPi")
+                if request_id:
+                    self.solar_handler.wait_for_prediction(request_id, timeout=60)
+            for _ in range(self.prediction_interval):
+                if not self.running:
+                    break
+                time.sleep(1)
+    
+    def load_all_models(self):
+        logger.info("Models loaded (delegated to cloud)")
+    
+    def start(self):
+        logger.info("=" * 60)
+        logger.info("Starting IoT Model Processor with Arduino Integration")
+        self.load_all_models()
+        if self.arduino.connect():
+            self.arduino.start(on_data_callback=self.on_arduino_data)
+        else:
+            logger.error("Arduino connection failed")
+            return
+        try:
+            self.setup_aws_iot()
+        except Exception as e:
+            logger.error(f"AWS IoT setup failed: {e}")
+        if self.config.get("auto_predict", True):
+            self.prediction_timer = threading.Thread(target=self.auto_predict, daemon=True)
+            self.prediction_timer.start()
+        self.running = True
+        for i in range(4):
+            t = threading.Thread(target=self.worker_thread, name=f"Worker-{i}", daemon=True)
+            t.start()
+            self.processing_threads.append(t)
+        logger.info("✅ Processor started. Listening...")
+        try:
+            while self.running:
+                if self.arduino.latest_data:
+                    d = self.arduino.latest_data
+                    sys.stdout.write(f"\r📊 SOLAR={d.get('SOLAR','N/A')}V "
+                                   f"TEMP={d.get('TEMP','N/A')}°C "
+                                   f"LUX={d.get('LUX','N/A')}   ")
+                    sys.stdout.flush()
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self.stop()
+    
+    def worker_thread(self):
+        while self.running:
+            try:
+                req = self.request_queue.get(timeout=1)
+                self.request_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"Worker error: {e}")
+    
+    def stop(self):
+        logger.info("\nStopping processor...")
+        self.running = False
+        self.arduino.stop()
+        for t in self.processing_threads:
+            t.join(timeout=2)
+        if self.mqtt_client:
+            self.mqtt_client.disconnect()
+        logger.info("✅ Stopped")
+
+
+def test_mobile_request():
+    print("\n" + "=" * 60)
+    print("TESTING MOBILE REQUEST HANDLER")
+    print("=" * 60)
+    
+    processor = IoTModelProcessor()
+    try:
+        processor.setup_aws_iot()
+    except Exception as e:
+        print(f"Failed to connect to AWS IoT: {e}")
+        return
+    
+    test_request = {
+        "requestId": "EN123456789",
+        "deviceId": "test_mobile",
+        "timestamp": time.time()
+    }
+    
+    print(f"\nSending test mobile request: {test_request}")
+    processor.mqtt_client.publish(
+        "raspberrypi/request",
+        json.dumps(test_request),
+        1
+    )
+    print("✅ Test request sent. Check DynamoDB for data.")
+    time.sleep(5)
+    processor.mqtt_client.disconnect()
+
+
+def main():
+    print("""
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║     IoT Core Model Processor - Arduino + Mobile Integration      ║
+    ║                                                                    ║
+    ║     Reading: TEMP, HUM, LUX, SOLAR, BATT from Arduino            ║
+    ║     Sending: 24h Solar Predictions to AWS IoT                    ║
+    ║     Mobile: Responds to EN* requests with last 24h prediction    ║
+    ╚══════════════════════════════════════════════════════════════════╝
+    """)
+    
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', default='config.json')
+    parser.add_argument('--predict-now', action='store_true')
+    parser.add_argument('--test-mobile', action='store_true')
+    args = parser.parse_args()
+    
+    if args.test_mobile:
+        test_mobile_request()
+        return
+    
+    processor = IoTModelProcessor(args.config)
+    
+    if args.predict_now:
+        if not processor.arduino.connect():
+            print("Arduino not connected")
+            return
+        processor.arduino.start()
+        time.sleep(2)
+        processor.arduino.stop()
+        return
+    
+    def signal_handler(sig, frame):
+        processor.stop()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    processor.start()
+
+
+if __name__ == "__main__":
+    main()
